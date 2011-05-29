@@ -4,10 +4,10 @@
     <!-- General -->
     <skip />
     <!-- Application name -->
-    <string name="wallpapers">Bokeh Wallpapers</string>
+    <string name="wallpapers">Behindcurtain3 Wallpapers</string>
 
     <!-- Wallpaper showing Bokeh -->
-    <string name="bokeh">Bokeh Rainbow</string>
+    <string name="app_name">Decibel</string>
 
-    <string name="bokeh_desc">Translucent fading circles with rainbow colors</string>
+    <string name="app_desc">Translucent bars measure the decibel levels</string>
 </resources>
