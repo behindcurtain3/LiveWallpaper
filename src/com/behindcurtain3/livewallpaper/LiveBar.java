@@ -20,7 +20,7 @@ import android.graphics.Color;
 import android.graphics.RectF;
 
 public class LiveBar {
-	public enum States { UP, DOWN, PAUSED }
+	public enum States { UP, DOWN, PAUSED, WAITING }
 	
 	RectF rect;
 	int height;
@@ -53,19 +53,20 @@ public class LiveBar {
 		this.color = 100;
 		this.alpha = 0;
 
-		this.level = level;
+		this.level = 10;
 		this.originLevel = this.level;
 		this.steps = steps;
 		this.currentStep = 0;
 		this.pause = 3;
 		
-		this.set(250.0f);
+		this.state = States.WAITING;
 	}
 	
 	void set(float level){
-		this.currentStep = 0;
+		this.currentStep = this.steps;
 		this.level = level;
-		this.state = States.UP;
+		this.state = States.PAUSED;
+		this.pausedStep = 0;
 	}
 
 	void tick() {	
@@ -84,6 +85,8 @@ public class LiveBar {
 		case DOWN:
 			if(this.currentStep > 0)
 				this.currentStep--;
+			else
+				this.state = States.WAITING;
 			
 			break;
 		case PAUSED:

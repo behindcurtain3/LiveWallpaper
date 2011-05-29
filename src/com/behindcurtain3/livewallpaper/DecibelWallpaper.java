@@ -15,10 +15,16 @@
  */
 package com.behindcurtain3.livewallpaper;
 
-import java.io.IOException;
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
+
+import com.behindcurtain3.livewallpaper.LiveBar.States;
+
+import edu.emory.mathcs.jtransforms.fft.FloatFFT_1D;
 
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -27,7 +33,6 @@ import android.graphics.RectF;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
-import android.media.MediaRecorder.AudioSource;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.SurfaceHolder;
@@ -42,16 +47,19 @@ public class DecibelWallpaper extends AnimationWallpaper {
 	}
 
 	class LiveEngine extends AnimationEngine {
+		FloatFFT_1D fft;
+		private static final double P0 = 0.000002;
+		
 		boolean audioEnabled = false;
 		AudioRecord recorder;
 		public int mSamplesRead; //how many samples read 
 		public int buffersizebytes; 
-		public int buflen; 
-		public int channelConfiguration = AudioFormat.CHANNEL_CONFIGURATION_MONO;
-		public int audioEncoding = AudioFormat.ENCODING_PCM_16BIT; 
-		public short[] buffer; //+-32767 
-		public static final int SAMPPERSEC = 8000; //samp per sec 8000, 11025, 22050 44100 or 48000 
+		public int buflen;  
+		public short[] buffer; //+-32767  
 		private int[] mSampleRates = new int[] { 8000, 11025, 22050, 44100 };
+		
+		double splValue = 0.0;
+		double rmsValue = 0.0;
 		
 		int offsetX;
 		int offsetY;
@@ -59,7 +67,8 @@ public class DecibelWallpaper extends AnimationWallpaper {
 		int width;
 		int visibleWidth;
 
-		Set<LiveBar> bars = new HashSet<LiveBar>();
+		List<LiveBar> bars = new ArrayList<LiveBar>();
+		int barIndex = 0;
 
 		int iterationCount = 0;
 
@@ -78,6 +87,7 @@ public class DecibelWallpaper extends AnimationWallpaper {
 				buffer = new short[buffersizebytes];
 				buflen = buffersizebytes / 2;
 				audioEnabled = true;
+				fft = new FloatFFT_1D(buflen);
 			}
 			
 		}
@@ -215,21 +225,78 @@ public class DecibelWallpaper extends AnimationWallpaper {
 				if(recorder.getRecordingState() == AudioRecord.RECORDSTATE_STOPPED){
 					recorder.startRecording();
 				}
+				buffer = new short[buffersizebytes];
 				mSamplesRead = recorder.read(buffer, 0, buffersizebytes); 
-				Log.d("WALLPAPER", "buffersizebytes: " + buffersizebytes);
-				android.os.Debug.waitForDebugger();
-				for (int i = 0; i < 256; i++){
-					Log.d("WALLPAPER-BUFFER", i + ": " +buffer[i]);
-					android.os.Debug.waitForDebugger();
+				//Log.d("WALLPAPER", "buffersizebytes: " + buffersizebytes);
+				//android.os.Debug.waitForDebugger();
+				
+				float [] tmpFloats = new float[buffersizebytes];
+				
+				for (int i = 0; i < buffersizebytes -1 ; i++){
+					Short t = buffer[i];
+					tmpFloats[i] = t.floatValue();
+					//rmsValue += buffer[i] * buffer[i];
 				}
+				
+				fft.complexForward(tmpFloats);
+				
+				float best_amp = 0.0f;
+				float spectrum;
+				float freq;
+				for (int i = 0; i < buflen; i++){
+					spectrum = getSpectrum(tmpFloats, i);
+					freq = getFrequency(i);
+					
+					Log.d("WALLPAPER", "Spectrum: " + spectrum + " Freq: " + freq);
+					android.os.Debug.waitForDebugger();
+					
+					if(spectrum > best_amp){
+						best_amp = spectrum;
+					}
+				}
+				
+				/*
+				double best_amplitude = 0.0;
+				int max_freq = Math.round( 600 * buflen / recorder.getSampleRate());
+				int min_freq = Math.round( 50 * buflen / recorder.getSampleRate());
+				for (int i = min_freq; i <= max_freq; i++){
+					
+					double current_amplitude = Math.pow(tmpFloats[i * 2], 2) + Math.pow(tmpFloats[i * 2 + 1], 2);
+					double normal_amplitude = current_amplitude * Math.pow(50 * 600, 0.5) / current_freq;
+					if(normal_amplitude > best_amplitude){
+						best_amplitude = normal_amplitude;
+					}
+				} */
+				Log.d("WALLPAPER", "Amplitude: " + best_amp);
+				android.os.Debug.waitForDebugger();
+				splValue = best_amp;
+				/*
+				rmsValue = rmsValue / buffersizebytes;
+				rmsValue = Math.sqrt(rmsValue);
+				
+				splValue = 20 * Math.log10(rmsValue / P0);
+				splValue += -80; // calibration
+				splValue = round(splValue, 2);
+				
+				Log.d("WALLPAPER", "RMS: " + rmsValue);
+				android.os.Debug.waitForDebugger();
+				Log.d("WALLPAPER", "SPL: " + splValue);
+				android.os.Debug.waitForDebugger(); */
 			}
 			synchronized (bars) {
-				for (Iterator<LiveBar> it = bars.iterator(); it
-						.hasNext();) {
-					LiveBar bar = it.next();
-					bar.tick();
+				for(int i = 0; i < bars.size(); i++){
+					if(bars.get(i).state == States.WAITING && i == barIndex){
+						bars.get(i).set((float) splValue);
+					}
+					bars.get(i).tick();
 				}
 				iterationCount++;
+				
+				barIndex++;
+				
+				if(barIndex >= bars.size()){
+					barIndex = 0;
+				}
 			}
 
 			super.iteration();
@@ -297,6 +364,20 @@ public class DecibelWallpaper extends AnimationWallpaper {
 		
 		public boolean isAudio(){
 			return audioEnabled;
+		}
+		
+		public double round(double d, int decimalPlace){
+			BigDecimal bd = new BigDecimal(Double.toString(d));
+			bd = bd.setScale(decimalPlace, BigDecimal.ROUND_HALF_UP);
+			return bd.doubleValue();
+		}
+		
+		public float getSpectrum(float[] a, int index){
+			return (float) (Math.sqrt( Math.pow(a[index * 2], 2) + Math.pow(a[index * 2 + 1], 2)));
+		}
+		
+		public float getFrequency(int index){
+			return (float) (((1.0 * recorder.getSampleRate()) / ( 1.0 * buflen)) * index);
 		}
 
 	}
